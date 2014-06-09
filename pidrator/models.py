@@ -60,13 +60,16 @@ class Irrigator(Model):
 
 @receiver(post_save, sender=Irrigator)
 def IrrigatorUpdated(sender, **kwargs):
+  irrigator = kwargs["instance"]
   CheckIrrigators.delay()
+  publish(
+      "pidrator", "irrigator-%d" % irrigator.pk,
+      {"in_watering_cycle": irrigator.in_watering_cycle})
 
 
 @receiver(post_save, sender=Sensor)
 def SensorUpdated(sender, **kwargs):
   sensor = kwargs["instance"]
-
   CheckIrrigators.delay(sensor)
   publish(
       "pidrator", "sensor-%d" % sensor.pk,
@@ -75,8 +78,5 @@ def SensorUpdated(sender, **kwargs):
 
 @receiver(post_save, sender=Relay)
 def RelayUpdated(sender, **kwargs):
-  sensor = kwargs["instance"]
-
-  publish(
-      "pidrator", "relay-%d" % sensor.pk,
-      {"actuated": str(sensor.actuated)})
+  relay = kwargs["instance"]
+  publish("pidrator", "relay-%d" % relay.pk, {"actuated": relay.actuated})

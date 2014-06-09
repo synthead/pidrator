@@ -15,12 +15,10 @@ IrrigatorModelFormSet = modelformset_factory(
 
 def Index(request):
   context = {"irrigator_formset": IrrigatorModelFormSet}
-
   return render(request, "index.html", context)
 
 
 def UpdateIrrigator(request):
   irrigator_formset = IrrigatorModelFormSet(request.POST)
   irrigator_formset.save()
-
-  return HttpResponse("Submitted.")
+  return HttpResponse()

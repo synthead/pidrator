@@ -5,8 +5,7 @@
   <head>
     <meta charset="utf-8">
     <title>Pidrator</title>
-    <link href="{% static "css/pidrator.css" %}" rel="stylesheet">
-    <script src="{% static "js/jquery-1.11.1.min.js" %}"></script>
+    <script src="{% static "jquery-1.11.1.min.js" %}"></script>
     <script type="text/javascript"
         src="{% static "omnibus/omnibus.min.js" %}"></script>
   </head>
@@ -14,30 +13,36 @@
   <body>
     <h1>Pidrator</h1>
 
-    <form action="/forms/update_irrigator" method="post">
+    <form id="irrigator-form">
       {% csrf_token %}
       {{ irrigator_formset.management_form }}
 
       {% for form in irrigator_formset %}
         {{ form.id }}
-        <h2>{{ form.instance.name }}</h2>
 
         <table>
           <tr>
-            <td>
-              Current moisture ({{ form.instance.sensor.name }}):
-            </td>
+            <td colspan="2"><h2>{{ form.instance.name }}</h2></td>
+          </tr>
+
+          <tr>
+            <td>Current moisture ({{ form.instance.sensor.name }}):</td>
             <td class="sensor-{{ form.instance.sensor.pk }}-moisture">
               {{ form.instance.sensor.moisture }}
             </td>
           </tr>
 
           <tr>
-            <td>
-              Replay actuated ({{ form.instance.relay.name }}):
-            </td>
+            <td>Replay actuated ({{ form.instance.relay.name }}):</td>
             <td class="relay-{{ form.instance.relay.pk }}-actuated">
               {{ form.instance.relay.actuated }}
+            </td>
+          </tr>
+
+          <tr>
+            <td>In watering cycle ({{ form.instance.relay.name }}):</td>
+            <td class="irrigator-{{ form.instance.relay.pk }}-in-watering-cycle">
+              {{ form.instance.in_watering_cycle }}
             </td>
           </tr>
 
@@ -74,7 +79,7 @@
       {% endfor %}
     </form>
 
-    <button id="submit-button">Submit</button>
+    <button id="submit-button">Submit all</button>
   </body>
 
   <script>
