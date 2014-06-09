@@ -1,12 +1,12 @@
-[pimostat]
+[pidrator]
 testing_without_hardware = false
 sensor_update_frequency = 10
 
 [database]
 host = localhost
 port = 3306
-name = pimostat
-user = pimostat
+name = pidrator
+user = pidrator
 password = hackme
 
 [django]

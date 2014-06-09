@@ -8,11 +8,11 @@ from django.conf import settings
 
 
 # set the default Django settings module for the "celery" program.
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pimostat.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pidrator.settings")
 
-celery_pimostat = Celery("pimostat")
+celery_pidrator = Celery("pidrator")
 
 # Using a string here means the worker will not have to
 # pickle the object when using Windows.
-celery_pimostat.config_from_object("django.conf:settings")
-celery_pimostat.autodiscover_tasks(lambda: settings.INSTALLED_APPS)
+celery_pidrator.config_from_object("django.conf:settings")
+celery_pidrator.autodiscover_tasks(lambda: settings.INSTALLED_APPS)

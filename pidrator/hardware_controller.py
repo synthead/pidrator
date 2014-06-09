@@ -1,11 +1,11 @@
-from pimostat.celery import celery_pimostat
+from pidrator.celery import celery_pidrator
 
 from celery.signals import celeryd_init
 from celery.signals import worker_shutdown
 
 from celery.utils.log import get_task_logger
 
-from pimostat.settings import PIMOSTAT_TESTING_WITHOUT_HARDWARE
+from pidrator.settings import PIDRATOR_TESTING_WITHOUT_HARDWARE
 
 logger = get_task_logger(__name__)
 
@@ -14,7 +14,7 @@ logger = get_task_logger(__name__)
 def CelerydInit(**kwargs):
   from celery.task.control import discard_all
 
-  if not PIMOSTAT_TESTING_WITHOUT_HARDWARE:
+  if not PIDRATOR_TESTING_WITHOUT_HARDWARE:
     import RPi.GPIO as GPIO
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
@@ -24,15 +24,15 @@ def CelerydInit(**kwargs):
 
 @worker_shutdown.connect
 def WorkerShutdown(**kwargs):
-  from pimostat.models import Relay
+  from pidrator.models import Relay
 
   for relay in Relay.objects.filter(enabled=True):
     ActuateRelay(relay, False)
 
 
-@celery_pimostat.task
+@celery_pidrator.task
 def UpdateEnabledSensors():
-  from pimostat.models import Sensor
+  from pidrator.models import Sensor
 
   for sensor in Sensor.objects.filter(enabled=True):
     # FIXME: Some strange race condition causes this: http://pastie.org/9238659
@@ -40,7 +40,7 @@ def UpdateEnabledSensors():
     UpdateSensor(sensor)
 
 
-@celery_pimostat.task
+@celery_pidrator.task
 def UpdateSensor(sensor):
   import re
   import decimal
@@ -48,7 +48,7 @@ def UpdateSensor(sensor):
   try:
     sensor_path = "/sys/bus/w1/devices/%s/w1_slave" % sensor.serial
 
-    if PIMOSTAT_TESTING_WITHOUT_HARDWARE:
+    if PIDRATOR_TESTING_WITHOUT_HARDWARE:
       import random
       sensor_data = "t=%d" % random.randint(23000, 24000)
     else:
@@ -57,14 +57,14 @@ def UpdateSensor(sensor):
 
     match = re.search("t=(\d+)(\d{3})", sensor_data)
     if match:
-      temperature = decimal.Decimal(".".join(match.groups()))
-      if temperature != sensor.temperature:
-        sensor.temperature = decimal.Decimal(".".join(match.groups()))
+      moisture = decimal.Decimal(".".join(match.groups()))
+      if moisture != sensor.moisture:
+        sensor.moisture = decimal.Decimal(".".join(match.groups()))
         sensor.save()
 
         logger.warning(
             "Updated sensor \"%s\" to %.3f degrees.", sensor.name,
-            sensor.temperature)
+            sensor.moisture)
     else:
       logger.error(
           "File \"%s\" contained unexpected data for sensor \"%s\"!  "
@@ -85,9 +85,9 @@ def UpdateSensor(sensor):
     sensor.save()
 
 
-@celery_pimostat.task
+@celery_pidrator.task
 def ActuateRelay(relay, actuated):
-  if not PIMOSTAT_TESTING_WITHOUT_HARDWARE:
+  if not PIDRATOR_TESTING_WITHOUT_HARDWARE:
     import RPi.GPIO as GPIO
     GPIO.setup(relay.channel, GPIO.OUT, initial=actuated)
 
@@ -100,27 +100,27 @@ def ActuateRelay(relay, actuated):
         ("deactuated", "actuated")[relay.actuated])
 
 
-@celery_pimostat.task
-def CheckThermostats(**filter_args):
-  from pimostat.models import Thermostat
+@celery_pidrator.task
+def CheckIrrigators(**filter_args):
+  from pidrator.models import Irrigator
 
   from django.db.models import F
   from django.db.models import Q
 
-  for thermostat in Thermostat.objects.filter(Q(
+  for irrigator in Irrigator.objects.filter(Q(
       Q(Q(relay__actuated=True) & Q(
-          Q(sensor__temperature__gte=F("desired_temperature") +
+          Q(sensor__moisture__gte=F("desired_moisture") +
               F("upper_deviation")) |
           Q(enabled=False) |
           Q(relay__enabled=False) |
           Q(sensor__enabled=False))) |
       Q(Q(relay__actuated=False) & Q(
-          Q(sensor__temperature__lte=F("desired_temperature") -
+          Q(sensor__moisture__lte=F("desired_moisture") -
               F("lower_deviation")) &
           Q(enabled=True) &
           Q(relay__enabled=True) &
           Q(sensor__enabled=True)))),
       **filter_args):
     # Calling this with .delay() produces this error: http://pastie.org/9240631
-    # ActuateRelay.delay(thermostat.relay, not thermostat.relay.actuated)
-    ActuateRelay(thermostat.relay, not thermostat.relay.actuated)
+    # ActuateRelay.delay(irrigator.relay, not irrigator.relay.actuated)
+    ActuateRelay(irrigator.relay, not irrigator.relay.actuated)

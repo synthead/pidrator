@@ -8,7 +8,7 @@ from configparser import RawConfigParser
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
 config = RawConfigParser()
-config.read(os.path.join(BASE_DIR, "pimostat", "settings.ini"))
+config.read(os.path.join(BASE_DIR, "pidrator", "settings.ini"))
 
 
 # Django settings.
@@ -29,7 +29,7 @@ DATABASES = {
 
 INSTALLED_APPS = (
     "django.contrib.staticfiles",
-    "pimostat",
+    "pidrator",
     "omnibus"
 )
 
@@ -37,7 +37,7 @@ TEMPLATE_CONTEXT_PROCESSORS = (
     "omnibus.context_processors.omnibus",
 )
 
-ROOT_URLCONF = "pimostat.urls"
+ROOT_URLCONF = "pidrator.urls"
 STATIC_URL = "/static/"
 
 LANGUAGE_CODE = "en-us"
@@ -56,12 +56,12 @@ TEMPLATE_DEBUG = True
 #     ",")
 
 
-# Pimostat settings.
+# Pidrator settings.
 
-PIMOSTAT_TESTING_WITHOUT_HARDWARE = config.getboolean(
-    "pimostat", "testing_without_hardware")
-PIMOSTAT_SENSOR_UPDATE_FREQUENCY = config.getint(
-    "pimostat", "sensor_update_frequency")
+PIDRATOR_TESTING_WITHOUT_HARDWARE = config.getboolean(
+    "pidrator", "testing_without_hardware")
+PIDRATOR_SENSOR_UPDATE_FREQUENCY = config.getint(
+    "pidrator", "sensor_update_frequency")
 
 
 # Celery settings.
@@ -75,15 +75,15 @@ else:
 
 CELERYBEAT_SCHEDULE = {
   "UpdateEnabledSensors": {
-    "task": "pimostat.hardware_controller.UpdateEnabledSensors",
+    "task": "pidrator.hardware_controller.UpdateEnabledSensors",
     # FIXME: Race condition if this is 1 second.
-    "schedule": timedelta(seconds=PIMOSTAT_SENSOR_UPDATE_FREQUENCY)
+    "schedule": timedelta(seconds=PIDRATOR_SENSOR_UPDATE_FREQUENCY)
   }
 }
 
 BROKER_URL = config.get("celery", "broker_url")
 CELERY_RESULT_BACKEND = config.get("celery", "result_backend")
 
-CELERY_INCLUDE = ["pimostat.hardware_controller"]
+CELERY_INCLUDE = ["pidrator.hardware_controller"]
 
 CELERY_ACCEPT_CONTENT = ["pickle"]
