@@ -7,10 +7,8 @@ class IrrigatorForm(ModelForm):
   class Meta:
     model = Irrigator
     fields = [
-        "desired_moisture",
+        "lowest_moisture",
         "watering_seconds",
         "timeout_seconds",
-        "upper_deviation",
-        "lower_deviation",
         "enabled"
     ]

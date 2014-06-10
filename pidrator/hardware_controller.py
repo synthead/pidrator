@@ -7,82 +7,63 @@ from celery.utils.log import get_task_logger
 
 from pidrator.settings import PIDRATOR_TESTING_WITHOUT_HARDWARE
 
+
 logger = get_task_logger(__name__)
 
 
 @celeryd_init.connect
 def CelerydInit(**kwargs):
   from celery.task.control import discard_all
+  discard_all()
 
   if not PIDRATOR_TESTING_WITHOUT_HARDWARE:
     import RPi.GPIO as GPIO
     GPIO.setmode(GPIO.BCM)
     GPIO.setwarnings(False)
 
-  discard_all()
-
 
 @worker_shutdown.connect
 def WorkerShutdown(**kwargs):
+  from celery import chain
   from pidrator.models import Relay
+  from pidrator.models import Irrigator
 
-  for relay in Relay.objects.filter(enabled=True):
-    ActuateRelay(relay, False)
+  chain(
+      ActuateRelay.si(relay, False) for relay in
+      Relay.objects.filter(enabled=True)
+  ).apply()
+
+  chain(
+      SetWateringCycle.si(irrigator, False) for irrigator in
+      Irrigator.objects.filter(in_watering_cycle=True)
+  ).apply()
 
 
 @celery_pidrator.task
 def UpdateEnabledSensors():
+  from celery import chain
   from pidrator.models import Sensor
-
-  for sensor in Sensor.objects.filter(enabled=True):
-    # FIXME: Some strange race condition causes this: http://pastie.org/9238659
-    # UpdateSensor.delay(sensor)
-    UpdateSensor(sensor)
+  chain(
+      UpdateSensor.si(sensor) for sensor in Sensor.objects.filter(enabled=True)
+  ).apply_async()
 
 
 @celery_pidrator.task
 def UpdateSensor(sensor):
-  import re
-  import decimal
+  if PIDRATOR_TESTING_WITHOUT_HARDWARE:
+    import random
+    moisture = random.randint(0, 1023)
+  else:
+    import spidev
+    spi = spidev.SpiDev()
+    spi.open(sensor.spi_port, sensor.spi_device)
+    adc = spi.xfer2([1, (8 + sensor.channel) << 4, 0])
+    moisture = int(((adc[1] & 3) << 8) + adc[2])
 
-  try:
-    sensor_path = "/sys/bus/w1/devices/%s/w1_slave" % sensor.serial
-
-    if PIDRATOR_TESTING_WITHOUT_HARDWARE:
-      import random
-      sensor_data = "t=%d" % random.randint(23000, 24000)
-    else:
-      with open(sensor_path) as sensor_file:
-        sensor_data = sensor_file.read()
-
-    match = re.search("t=(\d+)(\d{3})", sensor_data)
-    if match:
-      moisture = decimal.Decimal(".".join(match.groups()))
-      if moisture != sensor.moisture:
-        sensor.moisture = decimal.Decimal(".".join(match.groups()))
-        sensor.save()
-
-        logger.warning(
-            "Updated sensor \"%s\" to %.3f degrees.", sensor.name,
-            sensor.moisture)
-    else:
-      logger.error(
-          "File \"%s\" contained unexpected data for sensor \"%s\"!  "
-          "Disabling sensor!", sensor_path, sensor.name)
-      sensor.enabled = False
-      sensor.save()
-  except FileNotFoundError:
-    logger.error(
-        "File \"%s\" not found for sensor \"%s\"!  Disabling sensor!",
-        sensor_path, sensor.name)
-    sensor.enabled = False
+  if moisture != sensor.moisture:
+    sensor.moisture = moisture
     sensor.save()
-  except PermissionError:
-    logger.error(
-        "Permission denied to file \"%s\" for sensor \"%s\"!  Disabling "
-        "sensor!", sensor_path, sensor.name)
-    sensor.enabled = False
-    sensor.save()
+    logger.warning("Updated sensor \"%s\" to %d.", sensor.name, sensor.moisture)
 
 
 @celery_pidrator.task
@@ -94,33 +75,50 @@ def ActuateRelay(relay, actuated):
   if relay.actuated is not actuated:
     relay.actuated = actuated
     relay.save()
-
     logger.warning(
         "Relay \"%s\" on channel %d %s.", relay.name, relay.channel,
         ("deactuated", "actuated")[relay.actuated])
 
 
 @celery_pidrator.task
+def WateringCycle(irrigator):
+  from celery import chain
+  chain(
+      SetWateringCycle.si(irrigator, True),
+      ActuateRelay.si(irrigator.relay, True),
+      ActuateRelay.subtask(
+          (irrigator.relay, False),
+          countdown=irrigator.watering_seconds,
+          immutable=True),
+      SetWateringCycle.subtask(
+          (irrigator, False),
+          countdown=irrigator.timeout_seconds,
+          immutable=True)
+  ).apply_async()
+
+
+@celery_pidrator.task
+def SetWateringCycle(irrigator, in_watering_cycle):
+  irrigator.in_watering_cycle = in_watering_cycle
+  irrigator.save(update_fields=["in_watering_cycle"])
+  logger.warning(
+      "Watering cycle %s for \"%s\".",
+      ("finished", "started")[in_watering_cycle], irrigator.name)
+
+
+@celery_pidrator.task
 def CheckIrrigators(**filter_args):
   from pidrator.models import Irrigator
-
   from django.db.models import F
   from django.db.models import Q
 
-  for irrigator in Irrigator.objects.filter(Q(
-      Q(Q(relay__actuated=True) & Q(
-          Q(sensor__moisture__gte=F("desired_moisture") +
-              F("upper_deviation")) |
-          Q(enabled=False) |
-          Q(relay__enabled=False) |
-          Q(sensor__enabled=False))) |
-      Q(Q(relay__actuated=False) & Q(
-          Q(sensor__moisture__lte=F("desired_moisture") -
-              F("lower_deviation")) &
-          Q(enabled=True) &
-          Q(relay__enabled=True) &
-          Q(sensor__enabled=True)))),
+  for irrigator in Irrigator.objects.filter(
+      Q(in_watering_cycle=False) &
+      Q(lowest_moisture__gte=(
+          (F("sensor__moisture") - F("sensor__calibrate_low"))
+          / F("sensor__calibrate_high") * 100)) &
+      Q(enabled=True) &
+      Q(relay__enabled=True) &
+      Q(sensor__enabled=True),
       **filter_args):
-    # Calling this with .delay() produces this error: http://pastie.org/9240631
-    # ActuateRelay.delay(irrigator.relay, not irrigator.relay.actuated)
-    ActuateRelay(irrigator.relay, not irrigator.relay.actuated)
+    WateringCycle.delay(irrigator)
